@@ -22,6 +22,9 @@ Neither Dropbox compatibility nor use of Dropbox's service is intended.
 Do not run two independent sync clients against the same local directory during
 migration: changes and deletions can feed back between them.
 
+See the [roadmap](ROADMAP.md) for milestones and acceptance criteria. Initial
+capability validation and repository setup are complete; implementation is next.
+
 ## Capability validation
 
 An isolated capability study on November 15, 2026, using the official Proton Drive
@@ -108,6 +111,37 @@ and a non-destructive reconciliation design.
 Never commit credentials, session tokens, keyring exports, personal file listings,
 raw account logs, or synchronization databases. Integration tests must use an
 explicitly selected disposable directory, not a contributor's real sync folder.
+
+### Development checks
+
+The current repository contains documentation rather than application code.
+Node.js tooling is for documentation checks only; it does not select the
+application's implementation language.
+
+With Node.js 22 or newer and npm installed:
+
+```sh
+npm ci --ignore-scripts
+npm run lint:docs
+```
+
+GitHub Actions runs Markdown linting, dependency auditing, and workflow validation
+on pull requests and pushes to `main`. Workflows can also be validated locally
+with Go 1.25 or newer:
+
+```sh
+go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+```
+
+CI uses read-only repository permissions and requires no Proton credentials.
+Dependabot checks npm dependencies and GitHub Actions references weekly.
+The dependency audit blocks moderate or higher severity advisories. The current
+Markdown tooling has a transitive, low-severity
+[KaTeX advisory](https://github.com/advisories/GHSA-238p-pmpm-9mq7); we retain the
+upstream-supported dependency versions rather than forcing an incompatible
+override. These dependencies are development tools, not application dependencies.
+Application linting, type checks, and offline tests will be added with the first
+application code rather than introducing placeholder test jobs.
 
 ## License
 

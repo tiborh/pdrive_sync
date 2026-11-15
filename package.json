@@ -1,0 +1,14 @@
+{
+  "name": "pdrive-sync-development",
+  "private": true,
+  "description": "Documentation tooling for the pdrive_sync project, not an application package.",
+  "scripts": {
+    "lint:docs": "markdownlint-cli2"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "0.24.1"
+  }
+}
