@@ -1,0 +1,37 @@
+# Python development artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+auth-session.json
+
+# Local sync state and integration-test artifacts
+.pdrive_sync/
+.pdrive-sync/
+.local/
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.log
+
+# Editor and operating-system artifacts
+.idea/
+.vscode/
+*~
+.DS_Store
