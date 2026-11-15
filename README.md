@@ -77,6 +77,17 @@ remote event-watch command in its command set. We must establish a supported
 event-driven approach; an SDK-backed component may be necessary instead of a
 pure CLI wrapper. Frequent whole-tree polling is not the proposed solution.
 
+## Language and runtime
+
+**TypeScript is the provisional language choice, with Bun as the candidate
+runtime.** This favors the native Proton SDK and the existing official CLI's
+integration approach over maintaining a second-language event bridge.
+
+See the [language-selection study](docs/language-selection.md) for alternatives,
+completed offline compatibility checks, remaining integration gates, and the
+conditions under which the language or runtime can change. Authentication and
+live event handling are not yet validated for our own SDK integration.
+
 ## Proton integration requirements
 
 Proton's current SDK documentation allows personal, non-commercial projects under
@@ -115,8 +126,8 @@ explicitly selected disposable directory, not a contributor's real sync folder.
 ### Development checks
 
 The current repository contains documentation rather than application code.
-Node.js tooling is for documentation checks only; it does not select the
-application's implementation language.
+The Node.js tooling below is for documentation checks only, separate from the
+provisional application language and runtime decision.
 
 With Node.js 22 or newer and npm installed:
 

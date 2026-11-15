@@ -5,19 +5,24 @@ Dropbox feature. Milestones describe acceptance criteria rather than delivery
 dates. The project should yield to Proton's official Linux implementation once
 it is ready to use.
 
+The [language-selection study](docs/language-selection.md) records the provisional
+TypeScript/Bun direction, validation evidence, and reasons to revisit the choice.
+
 - [x] **Validate the building blocks and establish the project.**
   Complete isolated capability validation, record the findings and limitations,
   and establish the public repository, MIT license, and unofficial stop-gap scope.
 - [ ] **Resolve supported Proton integration.**
   Establish event-driven remote change detection without frequent recursive tree
   scans. Clarify application identification when wrapping the official CLI and
-  select a CLI-only or SDK-backed integration. This is a prerequisite for an
-  unattended background service.
+  select a CLI-only or SDK-backed integration. Qualify authentication, resumable
+  live events, and packaging against the provisional language/runtime decision.
+  This is a prerequisite for an unattended background service.
 - [ ] **Deliver read-only reconciliation and dry-run output.**
   Add a CLI, explicit local/remote root configuration, a tested metadata adapter,
   persistent synchronization state, and an explainable plan of proposed changes.
-  Keep this milestone non-destructive. Add Python formatting, linting, type
-  checking, and offline unit tests to CI with the first application code.
+  Keep this milestone non-destructive. Add language-appropriate formatting,
+  linting, type checking, and offline unit tests to CI with the first application
+  code.
 - [ ] **Implement explicit, one-shot file synchronization.**
   Transfer only changed content, preserve conflicting versions, stage downloads
   before replacing files, and report individual failures accurately. Reject or
