@@ -11,7 +11,7 @@ supported by Proton AG.
 
 ## Status
 
-**Read-only dry runs are available; no files are synchronized yet.**
+**Read-only dry runs and explicit one-shot synchronization are available.**
 Do not rely on this project as your only backup.
 
 The initial goal is a CLI that synchronizes a local directory, such as
@@ -23,12 +23,16 @@ Do not run two independent sync clients against the same local directory during
 migration: changes and deletions can feed back between them.
 
 See the [roadmap](ROADMAP.md) for milestones and acceptance criteria. Initial
-capability validation, event integration, and read-only reconciliation are complete.
-Explicit one-shot synchronization is next.
+capability validation, event integration, read-only reconciliation, and explicit
+one-shot synchronization are complete.
 
 The [dry-run guide](docs/reconciliation.md) describes the `plan` command, persistent
 state, conflicts, and exit codes. **Initial verification may read every unverified
-remote file in full**, without saving its contents locally. Nothing is applied.
+remote file in full**, without saving its contents locally. `plan` applies nothing.
+The [one-shot guide](docs/one-shot-sync.md) explains `sync --apply`: conflicts are
+left untouched, downloads retain prior local bytes, and deletions are disabled.
+**Keep both roots quiet during apply; concurrent-client safety is not guaranteed.**
+Recovery/staging data is retained and currently requires manual disk management.
 
 ## Capability validation
 
@@ -67,8 +71,8 @@ These results demonstrate transfer primitives, not a complete or safe sync engin
 
 ## Design direction
 
-The current implementation provides **read-only reconciliation and dry-run
-output**, with no changes to selected local or remote file contents.
+The current implementation provides **read-only plans and explicitly authorized
+one-shot transfers**, with verified content comparison and persistent state.
 
 The intended safety model includes persistent synchronization state, preservation
 of conflicting versions, staged downloads, recoverable deletions, explicit
@@ -133,7 +137,7 @@ explicitly selected disposable directory, not a contributor's real sync folder.
 ### Development checks
 
 The root Node.js tooling checks documentation. The `integration/` project contains
-the experimental TypeScript/Bun planner and helper, not a synchronization engine.
+the experimental TypeScript/Bun planner, one-shot engine, and integration helper.
 
 With Node.js 22 or newer and npm installed:
 

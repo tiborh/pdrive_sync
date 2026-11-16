@@ -8,7 +8,7 @@ import { makePlan } from "./plan.ts";
 import { ReconcileStore } from "./reconcile-store.ts";
 import { refreshRemote, type MetadataClient } from "./remote.ts";
 
-type PlanConfig = {
+export type PlanConfig = {
   local: string;
   remote: string;
   state: string;
@@ -50,7 +50,7 @@ export async function validatePlanPaths(config: PlanConfig) {
   return local;
 }
 
-export async function reconcile(
+export async function prepareReconciliation(
   sdk: MetadataClient,
   root: NodeEntity,
   config: PlanConfig,
@@ -75,7 +75,24 @@ export async function reconcile(
       remotePaths(refreshed.nodes, root.uid),
       store.agreements(),
     );
+    const pending = store.pending();
+    for (const intent of pending) plan.agreements.delete(intent.path);
     store.commit(refreshed.nodes, refreshed.cursor, plan.agreements);
+    return { store, local, refreshed, plan, pending };
+  } catch (error) {
+    store.close();
+    throw error;
+  }
+}
+
+export async function reconcile(
+  sdk: MetadataClient,
+  root: NodeEntity,
+  config: PlanConfig,
+) {
+  const { store, local, refreshed, plan, pending } =
+    await prepareReconciliation(sdk, root, config);
+  try {
     const summary: Record<string, number> = {};
     for (const item of plan.items)
       summary[item.action] = (summary[item.action] ?? 0) + 1;
@@ -93,6 +110,7 @@ export async function reconcile(
       },
       summary,
       items: plan.items,
+      pending,
     };
   } finally {
     store.close();

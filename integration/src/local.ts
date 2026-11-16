@@ -1,9 +1,16 @@
 import { createHash } from "node:crypto";
 import { isUtf8 } from "node:buffer";
 import { constants, type BigIntStats } from "node:fs";
-import { lstat, open, readdir, realpath } from "node:fs/promises";
+import {
+  lstat,
+  open,
+  readdir,
+  realpath,
+  type FileHandle,
+} from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { Entry } from "./metadata.ts";
+import { isMissing } from "./database.ts";
 
 export function containsPath(parent: string, child: string): boolean {
   const path = relative(parent, child);
@@ -21,6 +28,58 @@ function sameFile(a: BigIntStats, b: BigIntStats): boolean {
     a.mtimeNs === b.mtimeNs &&
     a.ctimeNs === b.ctimeNs
   );
+}
+
+export async function inspectLocal(
+  path: string,
+  copyTo?: FileHandle,
+): Promise<Entry | undefined> {
+  let info: BigIntStats;
+  try {
+    info = await lstat(path, { bigint: true });
+  } catch (error) {
+    if (isMissing(error)) return undefined;
+    throw error;
+  }
+  if (info.isDirectory()) return { kind: "directory" };
+  if (!info.isFile()) {
+    return {
+      kind: "unsupported",
+      issue: info.isSymbolicLink()
+        ? "Local symlink is not followed"
+        : "Unsupported local special file",
+    };
+  }
+  const file = await open(
+    path,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
+  try {
+    if (!sameFile(info, await file.stat({ bigint: true }))) {
+      throw new Error(
+        `Local file changed while opening: ${JSON.stringify(path)}`,
+      );
+    }
+    const hash = createHash("sha1");
+    for await (const chunk of file.createReadStream({ autoClose: false })) {
+      hash.update(chunk);
+      if (copyTo) await copyTo.writeFile(chunk);
+    }
+    if (
+      !sameFile(info, await file.stat({ bigint: true })) ||
+      !sameFile(info, await lstat(path, { bigint: true }))
+    ) {
+      throw new Error(
+        `Local file changed while hashing: ${JSON.stringify(path)}`,
+      );
+    }
+    const size = Number(info.size);
+    if (!Number.isSafeInteger(size))
+      throw new Error("Local file is too large to represent safely.");
+    return { kind: "file", size, sha1: hash.digest("hex") };
+  } finally {
+    await file.close();
+  }
 }
 
 export async function localRoot(path: string): Promise<{
@@ -60,45 +119,10 @@ export async function scanLocal(root: string): Promise<Map<string, Entry>> {
       if (info.isDirectory()) {
         result.set(key, { kind: "directory" });
         await visit(path, key);
-      } else if (info.isFile()) {
-        const file = await open(
-          path,
-          constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-        );
-        try {
-          if (!sameFile(info, await file.stat({ bigint: true }))) {
-            throw new Error(
-              `Local file changed while opening: ${JSON.stringify(key)}`,
-            );
-          }
-          const hash = createHash("sha1");
-          for await (const chunk of file.createReadStream({
-            autoClose: false,
-          })) {
-            hash.update(chunk);
-          }
-          if (
-            !sameFile(info, await file.stat({ bigint: true })) ||
-            !sameFile(info, await lstat(path, { bigint: true }))
-          ) {
-            throw new Error(
-              `Local file changed while hashing: ${JSON.stringify(key)}`,
-            );
-          }
-          const size = Number(info.size);
-          if (!Number.isSafeInteger(size))
-            throw new Error("Local file is too large to represent safely.");
-          result.set(key, { kind: "file", size, sha1: hash.digest("hex") });
-        } finally {
-          await file.close();
-        }
       } else {
-        result.set(key, {
-          kind: "unsupported",
-          issue: info.isSymbolicLink()
-            ? "Local symlink is not followed"
-            : "Unsupported local special file",
-        });
+        const entry = await inspectLocal(path);
+        if (!entry) throw new Error("Local entry disappeared during scan.");
+        result.set(key, entry);
       }
     }
   };

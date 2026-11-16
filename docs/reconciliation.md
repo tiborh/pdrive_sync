@@ -3,7 +3,8 @@
 The `plan` command compares an explicitly selected local directory with an
 existing My files subfolder in Proton Drive. **It does not apply its plan: no
 uploads, local downloads, renames, or deletions are performed.** There is no
-`--apply` flag or background synchronization service.
+`--apply` flag on `plan`. The separate [one-shot command](one-shot-sync.md)
+requires `sync --apply`; there is still no background synchronization service.
 
 It does write private state, SDK caches, and diagnostics **outside** the selected
 local tree. It reads remote file contents when needed for verification, as
@@ -47,13 +48,15 @@ For machine-readable output:
 
 Text is the default. Filenames are quoted/escaped; every item has an explanation.
 JSON output is one complete object with `schemaVersion: 1`, roots, update
-statistics, summary counts, and plan items. No partial plan is printed on failure.
+statistics, summary counts, plan items, and pending transfer intents.
+Interrupted apply operations appear as `PENDING` diagnostics in text output.
+No partial plan is printed on failure.
 `./dist/pdrive-integration --help` also describes the command.
 
 | Exit code | Meaning |
 | --- | --- |
 | `0` | Complete plan, without conflicts/review/unsupported entries; proposals are still unapplied |
-| `2` | Complete plan contains conflicts, required review, or unsupported entries |
+| `2` | Complete plan has conflicts, review/unsupported entries, or pending transfers |
 | `1` | Incomplete operation: authentication, access, scan, verification, state, or other error |
 
 ## What the plan means
@@ -119,7 +122,9 @@ downloads, or event batches cannot acknowledge partial work. Sibling events
 sharing a cursor are not lost.
 
 **Only content observed equal on both sides establishes or updates an agreement.**
-A proposed upload/download never updates that baseline. For example, a local
+A proposed upload/download never updates that baseline. Pending apply intents
+also prevent the planner from acknowledging apparent equality for their paths.
+For example, a local
 change proposes an upload; if the remote file then changes too, the next dry run
 reports a conflict rather than pretending the upload happened.
 
@@ -156,12 +161,12 @@ permanently deleting it:
 PDRIVE_ALLOW_LIVE_TESTS=1 bun scripts/validate-live.ts --planning-only
 ```
 
-Omit `--planning-only` to include the earlier scheduler/crash integration checks.
+Omit `--planning-only` to include scheduler/crash and one-shot transfer checks.
 Do not run live tests against real Dropbox files or real synchronization folders.
 
 There is no atomic snapshot spanning both filesystems: concurrent edits can
 invalidate a plan, even when scan consistency checks pass. No plan is an executable
-authorization; future apply operations must revalidate inputs. Move/deletion
+authorization; `sync --apply` recomputes its plan and revalidates inputs. Move/deletion
 application, automatic refresh recovery, permissions/ownership/timestamp
 preservation, local watchers, large-tree performance, account-wide concurrent
 clients, and unattended keyring access remain later work.

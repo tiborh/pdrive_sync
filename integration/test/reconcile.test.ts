@@ -1,5 +1,4 @@
 import { afterEach, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
 import {
   chmodSync,
   linkSync,
@@ -15,22 +14,13 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-  DriveEventType,
-  MemberRole,
-  NodeType,
-  RevisionState,
-  type DriveEvent,
-  type NodeEntity,
-  type NodeOrUid,
-  type FileDownloader,
-} from "@protontech/drive-sdk";
+import { DriveEventType, type DriveEvent } from "@protontech/drive-sdk";
 import { remoteMetadata, remotePaths } from "../src/metadata.ts";
 import { scanLocal } from "../src/local.ts";
 import { reconcile, validatePlanPaths } from "../src/reconcile.ts";
 import { ReconcileStore, type RootBinding } from "../src/reconcile-store.ts";
 import { EventStore } from "../src/store.ts";
-import type { MetadataClient } from "../src/remote.ts";
+import { sha1, node, root, changed, FakeSdk } from "./fixtures.ts";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -50,125 +40,6 @@ function fixture() {
     privateDirectories: [],
   };
 }
-const sha1 = (text: string) => createHash("sha1").update(text).digest("hex");
-function node(
-  uid: string,
-  parentUid: string,
-  name: string,
-  content?: string,
-): NodeEntity {
-  return {
-    uid,
-    parentUid,
-    name: { ok: true, value: name },
-    type: content === undefined ? NodeType.Folder : NodeType.File,
-    treeEventScopeId: "scope",
-    keyAuthor: { ok: true, value: null },
-    nameAuthor: { ok: true, value: null },
-    directRole: MemberRole.Inherited,
-    ownedBy: {},
-    isShared: false,
-    isSharedByUrl: false,
-    creationTime: new Date(0),
-    modificationTime: new Date(0),
-    activeRevision:
-      content === undefined
-        ? undefined
-        : {
-            uid: `${uid}-${content}`,
-            state: RevisionState.Active,
-            creationTime: new Date(0),
-            contentAuthor: { ok: true, value: null },
-            storageSize: 0,
-            isImported: false,
-            claimedSize: Buffer.byteLength(content),
-            claimedDigests: { sha1: sha1(content), sha1Verified: true },
-          },
-  };
-}
-const root = node("root", "account", "test");
-function changed(
-  uid: string,
-  parentNodeUid = "root",
-  eventId = "next",
-): Extract<DriveEvent, { isTrashed: boolean }> {
-  return {
-    type: DriveEventType.NodeUpdated,
-    treeEventScopeId: "scope",
-    eventId,
-    nodeUid: uid,
-    parentNodeUid,
-    isTrashed: false,
-    isShared: false,
-  };
-}
-class FakeSdk implements MetadataClient {
-  nodes = new Map<string, NodeEntity>([["root", root]]);
-  events: DriveEvent[] = [];
-  listed: string[] = [];
-  failBatch = false;
-  failVerification = false;
-  revisionBytes = new Map<string, Uint8Array>();
-  downloaded: string[] = [];
-  async getFileRevisionDownloader(revision: string): Promise<FileDownloader> {
-    this.downloaded.push(revision);
-    const bytes = this.revisionBytes.get(revision);
-    if (!bytes) throw new Error("Missing synthetic revision bytes");
-    return {
-      getClaimedSizeInBytes: () => bytes.length,
-      downloadToStream: (stream) => ({
-        pause() {},
-        resume() {},
-        completion: async () => {
-          const writer = stream.getWriter();
-          try {
-            await writer.write(bytes);
-            await writer.close();
-            if (this.failVerification)
-              throw new Error("Synthetic signature failure");
-          } finally {
-            writer.releaseLock();
-          }
-        },
-        isDownloadCompleteWithSignatureIssues: () => this.failVerification,
-      }),
-      unsafeDownloadToStream() {
-        throw new Error("Unsafe download must not be used");
-      },
-      getSeekableStream() {
-        throw new Error("Unverified stream must not be used");
-      },
-    };
-  }
-  async getNode(value: NodeOrUid): Promise<NodeEntity> {
-    const uid = typeof value === "string" ? value : value.uid;
-    const result = this.nodes.get(uid);
-    if (!result) throw new Error(`Missing synthetic node: ${uid}`);
-    return result;
-  }
-  async *iterateFolderChildren(value: NodeOrUid): AsyncGenerator<NodeEntity> {
-    const uid = typeof value === "string" ? value : value.uid;
-    this.listed.push(uid);
-    for (const child of this.nodes.values())
-      if (child.parentUid === uid) yield child;
-  }
-  async *iterateEvents(
-    _scope: string,
-    cursor?: string,
-  ): AsyncGenerator<DriveEvent> {
-    if (!cursor) {
-      yield {
-        type: DriveEventType.FastForward,
-        treeEventScopeId: "scope",
-        eventId: "initial",
-      };
-    } else {
-      yield* this.events;
-      if (this.failBatch) throw new Error("Interrupted event batch");
-    }
-  }
-}
-
 test("local scan hashes hidden/empty/nested/Unicode files and never follows symlinks", async () => {
   const config = fixture();
   mkdirSync(join(config.local, "nested"));

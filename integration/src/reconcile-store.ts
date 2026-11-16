@@ -1,6 +1,16 @@
 import type { Database } from "bun:sqlite";
 import { openStateDatabase } from "./database.ts";
-import type { Agreement, RemoteNode } from "./metadata.ts";
+import { fingerprint, type Agreement, type RemoteNode } from "./metadata.ts";
+
+export type TransferIntent = {
+  path: string;
+  action: string;
+  target: string;
+  beforeLocal: string | null;
+  beforeRemote: string | null;
+  remoteUid: string | null;
+  artifact: string;
+};
 
 type RemoteRow = {
   uid: string;
@@ -52,6 +62,10 @@ export class ReconcileStore {
       this.db.run(
         "CREATE TABLE IF NOT EXISTS agreements (path TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, remote_uid TEXT NOT NULL)",
       );
+      this.db.run(`CREATE TABLE IF NOT EXISTS transfers (
+        path TEXT PRIMARY KEY, action TEXT NOT NULL, target TEXT NOT NULL,
+        beforeLocal TEXT, beforeRemote TEXT, remoteUid TEXT, artifact TEXT NOT NULL,
+        status TEXT NOT NULL)`);
       if (!kind) {
         this.db.transaction(() => {
           this.set("kind", "reconcile-v1");
@@ -125,6 +139,70 @@ export class ReconcileStore {
           { fingerprint: row.fingerprint, remoteUid: row.remote_uid },
         ]),
     );
+  }
+
+  pending(): TransferIntent[] {
+    return this.db
+      .query<TransferIntent, []>(
+        "SELECT path, action, target, beforeLocal, beforeRemote, remoteUid, artifact FROM transfers WHERE status = 'pending'",
+      )
+      .all();
+  }
+
+  begin(intent: TransferIntent): void {
+    if (this.pending().some((pending) => pending.path === intent.path)) {
+      throw new Error("An unresolved transfer already exists for this path.");
+    }
+    this.db.run(
+      "INSERT OR REPLACE INTO transfers VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')",
+      [
+        intent.path,
+        intent.action,
+        intent.target,
+        intent.beforeLocal,
+        intent.beforeRemote,
+        intent.remoteUid,
+        intent.artifact,
+      ],
+    );
+  }
+
+  retry(path: string): void {
+    this.db.run("UPDATE transfers SET status = 'retry' WHERE path = ?", [path]);
+  }
+
+  private writeNode(node: RemoteNode): void {
+    this.db.run(
+      "INSERT OR REPLACE INTO remote_nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        node.uid,
+        node.parentUid,
+        node.name,
+        node.kind,
+        node.size ?? null,
+        node.sha1 ?? null,
+        node.revision ?? null,
+        node.verification ?? null,
+        node.issue ?? null,
+      ],
+    );
+  }
+
+  complete(path: string, node: RemoteNode): void {
+    const value = fingerprint(node);
+    if (!value || (node.kind === "file" && !node.verification) || this.blocked)
+      throw new Error("Cannot acknowledge an unverified or blocked transfer.");
+    this.db.transaction(() => {
+      this.writeNode(node);
+      this.db.run("INSERT OR REPLACE INTO agreements VALUES (?, ?, ?)", [
+        path,
+        value,
+        node.uid,
+      ]);
+      this.db.run("UPDATE transfers SET status = 'complete' WHERE path = ?", [
+        path,
+      ]);
+    })();
   }
 
   commit(

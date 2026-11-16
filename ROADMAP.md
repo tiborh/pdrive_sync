@@ -30,11 +30,15 @@ TypeScript/Bun baseline, validation evidence, and reasons to revisit the choice.
   persistent matching baselines and event-updated recursive metadata, explanatory
   text/JSON output, and offline/live checks. See the
   [dry-run guide and limitations](docs/reconciliation.md).
-- [ ] **Implement explicit, one-shot file synchronization.**
+- [x] **Implement explicit, one-shot file synchronization.**
   Transfer only changed content, preserve conflicting versions, stage downloads
   before replacing files, and report individual failures accurately. Reject or
   clearly report unsupported file types. Keep deletion propagation disabled by
   default and require an explicit command to apply changes.
+  Completed with `sync --apply`, serial verified transfers, retained local recovery
+  copies and remote revisions, leave-and-report conflicts, pending intents, and
+  offline/live qualification. See the [one-shot guide](docs/one-shot-sync.md) for
+  recovery, retained disk usage, and important concurrent-writer limitations.
 - [ ] **Handle moves and deletions conservatively.**
   Track stable remote identities, retain recoverable local copies, use remote
   trash, and detect ambiguous restores. Guard against missing roots, incomplete

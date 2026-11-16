@@ -5,7 +5,7 @@ import {
   type NodeEntity,
   type ProtonDriveClient,
 } from "@protontech/drive-sdk";
-import { createHash } from "node:crypto";
+import { readRevision } from "./content.ts";
 import { remoteMetadata, remotePaths, type RemoteNode } from "./metadata.ts";
 import type { ReconcileStore } from "./reconcile-store.ts";
 
@@ -185,21 +185,7 @@ export async function refreshRemote(
     }
     if (!node.revision)
       throw new Error("Cannot verify a remote file without a revision.");
-    const hash = createHash("sha1");
-    let size = 0;
-    const downloader = await sdk.getFileRevisionDownloader(node.revision);
-    const controller = downloader.downloadToStream(
-      new WritableStream<Uint8Array>({
-        write(chunk) {
-          hash.update(chunk);
-          size += chunk.byteLength;
-          if (!Number.isSafeInteger(size))
-            throw new Error("Remote file is too large to represent safely.");
-        },
-      }),
-    );
-    await controller.completion();
-    const sha1 = hash.digest("hex");
+    const { size, sha1 } = await readRevision(sdk, node.revision);
     if (
       (node.sha1 !== undefined && node.sha1 !== sha1) ||
       (node.size !== undefined && node.size !== size)

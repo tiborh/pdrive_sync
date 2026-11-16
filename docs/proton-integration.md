@@ -1,9 +1,10 @@
 # Proton integration qualification
 
-**Milestone complete for an experimental personal-use integration, not a working
-sync client or Proton-endorsed production application.** TypeScript/Bun is the
+**Milestone complete for an experimental personal-use integration, not a
+Proton-endorsed production application.** TypeScript/Bun is the
 initial implementation baseline. The subsequent
-[read-only reconciliation milestone](reconciliation.md) is also complete.
+[read-only reconciliation](reconciliation.md) and
+[explicit one-shot synchronization](one-shot-sync.md) milestones are also complete.
 
 ## Selected approach
 
@@ -163,11 +164,12 @@ PDRIVE_ALLOW_LIVE_TESTS=1 bun scripts/validate-live.ts
 ```
 
 This command **writes synthetic cloud data**, observes it with the helper, runs
-the planner checks, and moves its randomly named folder to trash.
+the planner and one-shot transfer checks, and moves its randomly named folder to trash.
 Use `--planning-only` to run just authentication and the planner checks.
+Use `--sync-only` to run authentication and one-shot transfer checks.
 It does not empty trash. Cleanup
 failure is reported as failure, with a private report under `.local/validation/`.
-It is a targeted integration test, not a large-tree, multi-writer, transfer-safety,
+It is a targeted integration test, not a large-tree, general multi-writer,
 or unattended-service qualification.
 
 ## Upstream references

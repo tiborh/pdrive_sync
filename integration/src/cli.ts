@@ -13,6 +13,7 @@ import {
 import { readBatch } from "./events.ts";
 import { EventStore } from "./store.ts";
 import { reconcile, validatePlanPaths } from "./reconcile.ts";
+import { synchronize, validateSyncPaths } from "./sync.ts";
 
 const options = {
   appVersion: APP_VERSION,
@@ -32,12 +33,15 @@ const usage = `Usage: pdrive-integration COMMAND
   inspect --remote /my-files/FOLDER
   events --remote /my-files/FOLDER --state FILE [--once|--watch --seconds N]
   plan --local DIRECTORY --remote /my-files/FOLDER --state FILE [--format text|json]
+  sync --apply --local DIRECTORY --remote /my-files/FOLDER --state FILE [--format text|json]
   version
 
 plan is read-only: it never applies transfers or deletions. Its state file must
 be outside the local root and separate from event-journal state. Unverified
 remote revisions are streamed and hashed once, which may use substantial bandwidth.
-Exit codes: 0 = completed; 2 = plan needs review; 1 = incomplete/failed operation.`;
+sync --apply recomputes its plan; conflicts and missing entries remain untouched.
+Recovery copies/staging are retained beside the state file in FILE.files/.
+Exit codes: 0 = completed; 2 = review/skipped entries; 1 = incomplete/failed operation.`;
 
 async function main(): Promise<void> {
   process.umask(0o077);
@@ -52,6 +56,7 @@ async function main(): Promise<void> {
       watch: { type: "boolean" },
       seconds: { type: "string", default: "120" },
       help: { type: "boolean", short: "h" },
+      apply: { type: "boolean" },
     },
   });
   const [command, action] = positionals;
@@ -68,12 +73,20 @@ async function main(): Promise<void> {
     return;
   }
   if (
-    !["auth", "inspect", "events", "plan"].includes(command ?? "") ||
+    !["auth", "inspect", "events", "plan", "sync"].includes(command ?? "") ||
     (command === "auth" &&
       !["login", "logout", "status"].includes(action ?? "")) ||
     positionals.length !== (command === "auth" ? 2 : 1)
   ) {
     throw new Error(usage);
+  }
+  if (
+    (command === "sync" && !values.apply) ||
+    (command !== "sync" && values.apply)
+  ) {
+    throw new Error(
+      "Only sync --apply authorizes file changes; plan remains read-only.",
+    );
   }
   if (values.once && values.watch) {
     throw new Error("--once and --watch are mutually exclusive.");
@@ -82,24 +95,26 @@ async function main(): Promise<void> {
     command !== "auth" &&
     (!values.remote?.startsWith("/my-files/") ||
       values.remote === "/my-files/" ||
-      (["events", "plan"].includes(command ?? "") && !values.state))
+      (["events", "plan", "sync"].includes(command ?? "") && !values.state))
   ) {
     throw new Error(
       "An explicit My files subfolder and event-state file are required.",
     );
   }
   if (
-    command === "plan" &&
+    ["plan", "sync"].includes(command ?? "") &&
     (!values.local || !["text", "json"].includes(values.format ?? ""))
   ) {
-    throw new Error("plan requires --local DIRECTORY and --format text|json.");
+    throw new Error(
+      "plan/sync requires --local DIRECTORY and --format text|json.",
+    );
   }
   if (
-    command === "plan" &&
+    ["plan", "sync"].includes(command ?? "") &&
     (values.once || values.watch || values.seconds !== "120")
   ) {
     throw new Error(
-      "plan is a single read-only operation; watch options are not supported.",
+      "plan/sync is a single operation; watch options are not supported.",
     );
   }
   const seconds = Number(values.seconds);
@@ -116,11 +131,12 @@ async function main(): Promise<void> {
       "The reference host is not isolated or honestly identified.",
     );
   }
-  if (command === "plan") {
+  if (command === "plan" || command === "sync") {
     if (!values.local || !values.state || !values.remote) {
-      throw new Error("plan requires --local, --remote, and --state.");
+      throw new Error("plan/sync requires --local, --remote, and --state.");
     }
-    await validatePlanPaths({
+    const validate = command === "sync" ? validateSyncPaths : validatePlanPaths;
+    await validate({
       local: values.local,
       remote: values.remote,
       state: values.state,
@@ -193,6 +209,38 @@ async function main(): Promise<void> {
     if (!values.state) {
       throw new Error("--state is required.");
     }
+    if (command === "sync") {
+      if (!values.local) throw new Error("--local is required.");
+      const result = await synchronize(host.sdk, node, {
+        local: values.local,
+        remote: values.remote,
+        state: values.state,
+        privateDirectories: [config.appDir, config.cacheDir, config.logDir],
+      });
+      if (values.format === "json") {
+        output(result);
+      } else {
+        console.log(
+          "EXPLICIT ONE-SHOT SYNC: deletions disabled; conflicts are left untouched.",
+        );
+        for (const item of result.results) {
+          console.log(
+            `${item.status.toUpperCase()} ${item.action} ${JSON.stringify(item.path)}: ${item.reason}${item.recovery ? ` Recovery: ${JSON.stringify(item.recovery)}` : ""}`,
+          );
+        }
+        console.log(`Summary: ${JSON.stringify(result.summary)}`);
+      }
+      if (result.results.some((item) => item.status === "failed"))
+        process.exitCode = 1;
+      else if (
+        result.pending.length ||
+        result.results.some((item) =>
+          ["skipped", "review"].includes(item.status),
+        )
+      )
+        process.exitCode = 2;
+      return;
+    }
     if (command === "plan") {
       if (!values.local) throw new Error("--local is required.");
       const plan = await reconcile(host.sdk, node, {
@@ -221,9 +269,15 @@ async function main(): Promise<void> {
             `${item.action.toUpperCase()} ${JSON.stringify(item.path)}: ${item.reason}`,
           );
         }
+        for (const pending of plan.pending) {
+          console.log(
+            `PENDING ${pending.action} ${JSON.stringify(pending.path)}: interrupted transfer requires recovery checks. Recovery: ${JSON.stringify(pending.artifact)}`,
+          );
+        }
         console.log(`Summary: ${JSON.stringify(plan.summary)}`);
       }
       if (
+        plan.pending.length ||
         plan.items.some((item) =>
           ["conflict", "review", "unsupported"].includes(item.action),
         )

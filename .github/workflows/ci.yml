@@ -52,6 +52,15 @@ jobs:
         run: |
           ./dist/pdrive-integration version
           ./dist/pdrive-integration --help
+          assert_apply_gate() {
+            local status=0
+            local output
+            output="$(./dist/pdrive-integration "$@" 2>&1)" || status=$?
+            test "$status" -eq 1
+            grep -Fq 'Only sync --apply authorizes file changes' <<<"$output"
+          }
+          assert_apply_gate sync
+          assert_apply_gate plan --apply
           cmp ../LICENSE dist/LICENSE
           test -s dist/PROTON-LICENSE
           test -s dist/THIRD-PARTY-NOTICES

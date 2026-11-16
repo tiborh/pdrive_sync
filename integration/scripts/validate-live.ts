@@ -1,17 +1,32 @@
-import { lstatSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
 import { APP_VERSION, SDK_VERSION } from "../src/identity.ts";
 import { scanLocal } from "../src/local.ts";
 import type { reconcile } from "../src/reconcile.ts";
+import type { synchronize } from "../src/sync.ts";
 
 if (process.env.PDRIVE_ALLOW_LIVE_TESTS !== "1") {
   throw new Error("Live validation is opt-in: set PDRIVE_ALLOW_LIVE_TESTS=1.");
 }
 const { values } = parseArgs({
-  options: { "planning-only": { type: "boolean" } },
+  options: {
+    "planning-only": { type: "boolean" },
+    "sync-only": { type: "boolean" },
+  },
 });
+if (values["planning-only"] && values["sync-only"]) {
+  throw new Error("--planning-only and --sync-only are mutually exclusive.");
+}
 process.umask(0o077);
 const integration = resolve(import.meta.dir, "..");
 const helper = resolve(integration, "dist/pdrive-integration");
@@ -301,6 +316,199 @@ async function validatePlanning(): Promise<void> {
   );
 }
 
+async function validateSynchronization(): Promise<void> {
+  const syncRemote = `${remote}/synchronization`;
+  const syncLocal = resolve(local, "local-sync");
+  const seeds = resolve(local, "sync-seeds");
+  const syncState = resolve(local, "sync.sqlite");
+  mkdirSync(resolve(syncLocal, "local-tree"), { recursive: true, mode: 0o700 });
+  mkdirSync(resolve(syncLocal, "empty-local"), { mode: 0o700 });
+  mkdirSync(seeds, { mode: 0o700 });
+  await cloud("filesystem", "create-folder", remote, "synchronization");
+  await cloud("filesystem", "create-folder", syncRemote, "remote-tree");
+  await cloud("filesystem", "create-folder", syncRemote, "empty-remote");
+  async function upload(
+    name: string,
+    content: string | Buffer,
+    parent = syncRemote,
+  ) {
+    const seed = resolve(seeds, name);
+    writeFileSync(seed, content);
+    await cloud(
+      "filesystem",
+      "upload",
+      seed,
+      parent,
+      "--file-conflict-strategy",
+      "create-new-revision",
+      "--skip-thumbnails",
+    );
+  }
+  writeFileSync(
+    resolve(syncLocal, "local-tree/árvíz.txt"),
+    "local-only payload\n",
+  );
+  writeFileSync(resolve(syncLocal, ".empty"), "");
+  writeFileSync(resolve(syncLocal, "both-upload.txt"), "before local\n");
+  writeFileSync(resolve(syncLocal, "both-download.txt"), "before remote\n");
+  writeFileSync(resolve(syncLocal, "conflict.txt"), "local conflict\n");
+  symlinkSync(seeds, resolve(syncLocal, "unsupported-link"));
+  const binary = Buffer.alloc(5 * 1024 * 1024, 0xa5);
+  writeFileSync(resolve(syncLocal, "local-tree/upload.bin"), binary);
+  await upload("remote.bin", binary, `${syncRemote}/remote-tree`);
+  await upload("both-upload.txt", "before local\n");
+  await upload("both-download.txt", "before remote\n");
+  await upload("conflict.txt", "remote conflict\n");
+  type Sync = Awaited<ReturnType<typeof synchronize>>;
+  const args = [
+    "sync",
+    "--local",
+    syncLocal,
+    "--remote",
+    syncRemote,
+    "--state",
+    syncState,
+    "--format",
+    "json",
+  ];
+  async function apply(): Promise<Sync> {
+    return JSON.parse(await command(helper, [...args, "--apply"], [2]));
+  }
+  async function info(path: string): Promise<{
+    uid: string;
+    activeRevision: { uid: string; claimedDigests?: { sha1?: string } };
+  }> {
+    return JSON.parse(
+      await cloud("filesystem", "info", `${syncRemote}/${path}`),
+    );
+  }
+  const denied = Bun.spawn([helper, ...args], {
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+  const deniedMessage = await new Response(denied.stderr).text();
+  check(
+    "sync refuses to write without an explicit --apply flag",
+    (await denied.exited) === 1 &&
+      deniedMessage.includes("Only sync --apply") &&
+      !existsSync(syncState),
+  );
+  const first = await apply();
+  const observed = await scanLocal(syncLocal);
+  writeFileSync(
+    resolve(local, "first-sync.json"),
+    `${JSON.stringify(first, null, 2)}\n`,
+    { mode: 0o600 },
+  );
+  check(
+    "one-shot SDK transfers create nested and empty directories in both directions",
+    first.pending.length === 0 &&
+      !first.results.some((item) => item.status === "failed") &&
+      first.results.some(
+        (item) => item.action === "upload" && item.status === "completed",
+      ) &&
+      first.results.some(
+        (item) => item.action === "download" && item.status === "completed",
+      ) &&
+      lstatSync(resolve(syncLocal, "empty-remote")).isDirectory() &&
+      (await info("local-tree/árvíz.txt")).activeRevision.claimedDigests
+        ?.sha1 === observed.get("local-tree/árvíz.txt")?.sha1,
+  );
+  check(
+    "downloaded binary bytes and uploaded empty-file hash are correct",
+    readFileSync(resolve(syncLocal, "remote-tree/remote.bin")).equals(binary) &&
+      (await info("local-tree/upload.bin")).activeRevision.claimedDigests
+        ?.sha1 === observed.get("local-tree/upload.bin")?.sha1 &&
+      (await info(".empty")).activeRevision.claimedDigests?.sha1 ===
+        "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+  );
+  const remoteConflict = await info("conflict.txt");
+  check(
+    "planned conflicts and symlinks are skipped without changing either version",
+    first.results.some(
+      (item) => item.path === "conflict.txt" && item.status === "skipped",
+    ) &&
+      first.results.some(
+        (item) => item.path === "unsupported-link" && item.status === "skipped",
+      ) &&
+      readFileSync(resolve(syncLocal, "conflict.txt"), "utf8") ===
+        "local conflict\n" &&
+      remoteConflict.activeRevision.claimedDigests?.sha1 ===
+        (await scanLocal(seeds)).get("conflict.txt")?.sha1 &&
+      lstatSync(resolve(syncLocal, "unsupported-link")).isSymbolicLink(),
+  );
+  const uploaded = await info("local-tree/árvíz.txt");
+  const second = await apply();
+  check(
+    "repeated sync transfers no unchanged content or extra revisions",
+    !second.summary.completed &&
+      !second.summary.failed &&
+      (await info("local-tree/árvíz.txt")).activeRevision.uid ===
+        uploaded.activeRevision.uid,
+  );
+  const before = await info("both-upload.txt");
+  writeFileSync(resolve(syncLocal, "both-upload.txt"), "changed locally\n");
+  await upload("both-download.txt", "changed remotely\n");
+  const changed = await apply();
+  const after = await info("both-upload.txt");
+  const replaced = changed.results.find(
+    (item) => item.path === "both-download.txt",
+  );
+  check(
+    "changed upload preserves stable file identity and creates a new Proton revision",
+    changed.results.some(
+      (item) => item.path === "both-upload.txt" && item.status === "completed",
+    ) &&
+      before.uid === after.uid &&
+      before.activeRevision.uid !== after.activeRevision.uid,
+  );
+  check(
+    "download replacement publishes verified content and retains the previous local bytes",
+    replaced?.status === "completed" &&
+      !!replaced.recovery &&
+      readFileSync(resolve(syncLocal, "both-download.txt"), "utf8") ===
+        "changed remotely\n" &&
+      readFileSync(resolve(replaced.recovery, "original"), "utf8") ===
+        "before remote\n",
+  );
+  writeFileSync(resolve(syncLocal, "both-upload.txt"), "concurrent local\n");
+  await upload("both-upload.txt", "concurrent remote\n");
+  const concurrentRemote = await info("both-upload.txt");
+  rmSync(resolve(syncLocal, "remote-tree/remote.bin"));
+  await cloud("filesystem", "trash", `${syncRemote}/.empty`);
+  const guarded = await apply();
+  await command(
+    official,
+    ["filesystem", "info", `${syncRemote}/.empty`, "--json"],
+    [1],
+  );
+  check(
+    "later concurrent edits are left untouched while local and remote deletions are not propagated",
+    guarded.results.some(
+      (item) => item.path === "both-upload.txt" && item.status === "skipped",
+    ) &&
+      guarded.results.some(
+        (item) =>
+          item.path === "remote-tree/remote.bin" && item.status === "skipped",
+      ) &&
+      guarded.results.some(
+        (item) => item.path === ".empty" && item.status === "skipped",
+      ) &&
+      readFileSync(resolve(syncLocal, "both-upload.txt"), "utf8") ===
+        "concurrent local\n" &&
+      readFileSync(resolve(syncLocal, ".empty")).length === 0 &&
+      !existsSync(resolve(syncLocal, "remote-tree/remote.bin")) &&
+      (await info("remote-tree/remote.bin")).activeRevision.claimedDigests
+        ?.sha1 === observed.get("remote-tree/remote.bin")?.sha1 &&
+      (await info("both-upload.txt")).activeRevision.uid ===
+        concurrentRemote.activeRevision.uid &&
+      (await info("conflict.txt")).activeRevision.uid ===
+        remoteConflict.activeRevision.uid &&
+      !guarded.summary.failed &&
+      guarded.deletionPropagation === false,
+  );
+}
+
 let created = false;
 try {
   check(
@@ -312,7 +520,7 @@ try {
   created = true;
   report.cleanup = "pending";
   save();
-  if (!values["planning-only"]) {
+  if (!values["planning-only"] && !values["sync-only"]) {
     const node = records(
       await command(helper, ["inspect", "--remote", remote]),
     )[0];
@@ -408,7 +616,8 @@ try {
     await cloud("filesystem", "info", "/my-files");
     check("official CLI remains authenticated", true);
   }
-  await validatePlanning();
+  if (!values["sync-only"]) await validatePlanning();
+  if (!values["planning-only"]) await validateSynchronization();
 } catch (error) {
   report.error = error instanceof Error ? error.message : String(error);
   process.exitCode = 1;
