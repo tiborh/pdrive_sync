@@ -1,6 +1,6 @@
 {
   "globs": ["**/*.md"],
-  "ignores": ["node_modules/**"],
+  "ignores": ["**/node_modules/**", ".local/**"],
   "config": {
     "MD013": {
       "line_length": 100

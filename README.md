@@ -11,7 +11,7 @@ supported by Proton AG.
 
 ## Status
 
-**Early research and project setup. There is no working sync application yet.**
+**Event integration qualified; there is no working sync application yet.**
 Do not rely on this project as your only backup.
 
 The initial goal is a CLI that synchronizes a local directory, such as
@@ -23,7 +23,8 @@ Do not run two independent sync clients against the same local directory during
 migration: changes and deletions can feed back between them.
 
 See the [roadmap](ROADMAP.md) for milestones and acceptance criteria. Initial
-capability validation and repository setup are complete; implementation is next.
+capability validation, repository setup, and the event-integration milestone are
+complete. Read-only reconciliation is next.
 
 ## Capability validation
 
@@ -67,26 +68,24 @@ output**, with no changes to real local or remote files.
 
 The intended safety model includes persistent synchronization state, preservation
 of conflicting versions, staged downloads, recoverable deletions, explicit
-errors, bounded concurrency, and retry backoff. Credentials should remain managed
-by the official Proton CLI and operating system rather than this application.
+errors, bounded concurrency, and retry backoff.
 
-**Remote change detection is an unresolved prerequisite for a background sync
-service.** Proton's integration guidelines require event-based synchronization
-and prohibit frequent recursive tree scans. The installed CLI did not expose a
-remote event-watch command in its command set. We must establish a supported
-event-driven approach; an SDK-backed component may be necessary instead of a
-pure CLI wrapper. Frequent whole-tree polling is not the proposed solution.
+The experimental [integration helper](docs/proton-integration.md) uses exported
+SDK event APIs through a pinned, incubating reference CLI host. It has its own
+browser-authorized session in the OS keyring, without sharing the official CLI's
+credentials. Live change detection and crash/restart replay passed isolated
+checks. It monitors one selected folder and its direct children, not a recursive
+sync tree. Frequent whole-tree polling is not the proposed solution.
 
 ## Language and runtime
 
-**TypeScript is the provisional language choice, with Bun as the candidate
-runtime.** This favors the native Proton SDK and the existing official CLI's
+**TypeScript and Bun are the qualified initial implementation baseline.**
+This favors the native Proton SDK and the existing official CLI's
 integration approach over maintaining a second-language event bridge.
 
 See the [language-selection study](docs/language-selection.md) for alternatives,
-completed offline compatibility checks, remaining integration gates, and the
-conditions under which the language or runtime can change. Authentication and
-live event handling are not yet validated for our own SDK integration.
+completed compatibility and live integration checks, remaining limitations, and
+the conditions under which the language or runtime can change.
 
 ## Proton integration requirements
 
@@ -99,8 +98,10 @@ Any implementation must respect Proton's current service terms and operational
 requirements, including event-based synchronization, caching, rate limits,
 backoff, official endpoints, and honest application identification. Custom
 clients or forked CLI builds must not impersonate an official Proton client.
-Identification requirements for a separately branded wrapper invoking the
-unmodified official CLI still need clarification.
+The helper identifies itself as `external-drive-pdrive_sync@0.1.0-alpha` and uses
+the reference host's `external-drive` authentication selection, rather than
+impersonating the official CLI. The official CLI is used separately to mutate
+synthetic fixtures in opt-in validation, not as the application's event adapter.
 
 The project will not use Proton logos or official product styling and will remain
 clearly identified as unofficial. Users should review the current upstream rules
@@ -116,7 +117,7 @@ References:
 ## Contributing
 
 The project is not ready for general use. Initial contributions should focus on
-the event-driven integration question, reproducible tests using synthetic data,
+read-only reconciliation, reproducible tests using synthetic data,
 and a non-destructive reconciliation design.
 
 Never commit credentials, session tokens, keyring exports, personal file listings,
@@ -125,9 +126,8 @@ explicitly selected disposable directory, not a contributor's real sync folder.
 
 ### Development checks
 
-The current repository contains documentation rather than application code.
-The Node.js tooling below is for documentation checks only, separate from the
-provisional application language and runtime decision.
+The root Node.js tooling checks documentation. The `integration/` project contains
+the experimental TypeScript/Bun helper, not a user-ready synchronization engine.
 
 With Node.js 22 or newer and npm installed:
 
@@ -136,23 +136,37 @@ npm ci --ignore-scripts
 npm run lint:docs
 ```
 
-GitHub Actions runs Markdown linting, dependency auditing, and workflow validation
-on pull requests and pushes to `main`. Workflows can also be validated locally
-with Go 1.25 or newer:
+With Bun 1.4.2, Git, and npm, check and build the integration separately:
+
+```sh
+cd integration
+npm ci --ignore-scripts
+npm run prepare:upstream
+npm run check
+npm test
+npm run build
+./dist/pdrive-integration version
+```
+
+See the [integration notes](docs/proton-integration.md) before authenticating or
+running opt-in live tests. GitHub Actions runs these offline checks and build,
+Markdown linting, dependency auditing, workflow validation, and TypeScript CodeQL.
+Workflows can also be validated locally with Go 1.25 or newer:
 
 ```sh
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
 ```
 
-CI uses read-only repository permissions and requires no Proton credentials.
-Dependabot checks npm dependencies and GitHub Actions references weekly.
-The dependency audit blocks moderate or higher severity advisories. The current
+CI requires no Proton credentials. Jobs use read-only repository contents;
+CodeQL additionally has permission to upload security results.
+Dependabot checks both npm projects and GitHub Actions references weekly.
+The npm dependency audits block moderate or higher severity advisories. The current
 Markdown tooling has a transitive, low-severity
 [KaTeX advisory](https://github.com/advisories/GHSA-238p-pmpm-9mq7); we retain the
 upstream-supported dependency versions rather than forcing an incompatible
 override. These dependencies are development tools, not application dependencies.
-Application linting, type checks, and offline tests will be added with the first
-application code rather than introducing placeholder test jobs.
+The separately pinned upstream source and its frozen dependency graph require
+manual review and coordinated updates; Dependabot does not update that source pin.
 
 ## License
 

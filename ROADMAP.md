@@ -5,24 +5,27 @@ Dropbox feature. Milestones describe acceptance criteria rather than delivery
 dates. The project should yield to Proton's official Linux implementation once
 it is ready to use.
 
-The [language-selection study](docs/language-selection.md) records the provisional
-TypeScript/Bun direction, validation evidence, and reasons to revisit the choice.
+The [language-selection study](docs/language-selection.md) records the qualified
+TypeScript/Bun baseline, validation evidence, and reasons to revisit the choice.
 
 - [x] **Validate the building blocks and establish the project.**
   Complete isolated capability validation, record the findings and limitations,
   and establish the public repository, MIT license, and unofficial stop-gap scope.
-- [ ] **Resolve supported Proton integration.**
+- [x] **Resolve supported Proton integration.**
   Establish event-driven remote change detection without frequent recursive tree
   scans. Clarify application identification when wrapping the official CLI and
   select a CLI-only or SDK-backed integration. Qualify authentication, resumable
   live events, and packaging against the provisional language/runtime decision.
-  This is a prerequisite for an unattended background service.
+  Completed with an SDK-backed helper, isolated browser/keyring authentication,
+  live event and restart checks, and a packaged Linux executable. See the
+  [qualification and limitations](docs/proton-integration.md): exported event
+  interfaces are used, but the pinned account host remains incubating and this
+  is not Proton-endorsed production integration.
 - [ ] **Deliver read-only reconciliation and dry-run output.**
   Add a CLI, explicit local/remote root configuration, a tested metadata adapter,
   persistent synchronization state, and an explainable plan of proposed changes.
-  Keep this milestone non-destructive. Add language-appropriate formatting,
-  linting, type checking, and offline unit tests to CI with the first application
-  code.
+  Keep this milestone non-destructive. Extend the existing formatting, linting,
+  type checking, and offline CI tests to cover reconciliation.
 - [ ] **Implement explicit, one-shot file synchronization.**
   Transfer only changed content, preserve conflicting versions, stage downloads
   before replacing files, and report individual failures accurately. Reject or

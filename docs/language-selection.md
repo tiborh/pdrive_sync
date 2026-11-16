@@ -2,10 +2,10 @@
 
 Date: November 15, 2026.
 
-**Status: provisional. Prefer TypeScript, with Bun as the candidate runtime.**
-Offline compatibility checks passed, but authentication and live event handling
-must pass an integration spike before this becomes the implementation baseline.
-There is no working sync application yet.
+**Status: TypeScript/Bun confirmed as the initial implementation baseline.**
+The offline study below and the subsequent
+[live integration qualification](proton-integration.md) passed.
+This qualifies the experimental Linux helper, not a complete sync application.
 
 ## What drives the choice
 
@@ -53,7 +53,7 @@ solves a concrete requirement that outweighs those costs.
 
 ## Language is not runtime or package-manager selection
 
-TypeScript is the language recommendation. Bun is the initial runtime candidate
+TypeScript is the selected language. Bun is the initial runtime
 because it matches the official CLI and can compile a Linux executable.
 Node.js remains an alternative if the integration works better there.
 
@@ -61,9 +61,9 @@ Do not assume that a Bun build is dependency-free or supported on every Linux
 system. Keyring integration, native libraries, CPU compatibility, distribution
 compatibility, and final application packaging still need validation.
 
-The production package-manager and lockfile choice must accommodate the SDK's
-actual dependency and patch requirements. The repository's current npm manifest
-and lockfile are documentation tooling, not an application dependency decision.
+The root npm manifest and lockfile remain documentation tooling. The integration
+has its own npm lock for development tools and uses the pinned reference host's
+frozen Bun lock, including its upstream crypto patch, for SDK dependencies.
 
 ## Checks completed before recording this decision
 
@@ -106,8 +106,10 @@ GitHub Actions, CodeQL, and Dependabot support the principal ecosystems consider
 here. GitHub tooling is not a reason to reject Python, C#, Go, or Rust; native SDK
 compatibility is the stronger differentiator.
 
-If TypeScript is confirmed, add strict type checking, ESLint, formatting, offline
-unit tests, and CodeQL with application code. Keep runtime-specific smoke tests:
+The integration now has strict type checking, Biome linting, Prettier formatting,
+offline Bun tests, build checks, and TypeScript CodeQL. Biome avoids the
+moderate-severity dependency advisories encountered with the initial ESLint
+toolchain. Keep runtime-specific smoke tests:
 Node-only tests cannot validate Bun deployment, and TypeScript CodeQL support is
 not a guarantee that every Bun-specific API is modeled.
 
@@ -117,20 +119,32 @@ credential-free; live integration tests remain explicitly opt-in.
 
 ## Confirmation criteria
 
-The next integration spike must establish:
+The integration spike established:
 
 - A supported authentication/session approach and honest application identity.
   Importing the SDK does not establish access to an existing CLI login.
 - Remote events for a disposable folder through exported SDK interfaces.
 - Persisted event cursors that resume correctly after a process restart,
-  including required refresh handling.
+  with refresh/removal events explicitly blocking progress rather than guessing
+  at safe recovery.
 - A packaged Linux executable with the real authentication, crypto, and event
   dependencies, plus identified runtime and keyring requirements.
 
-The SDK excludes authentication/session management, and the CLI's account module
-is currently private and incubating. Upstream API and cryptographic changes are
-additional maintenance risks. Do not copy private implementation details and
-describe them as a stable public API.
+Eight offline tests and seven opt-in live checks passed. The compiled Linux
+x86-64 helper also resumed its own OS-keyring session from an empty directory
+without Node or Bun on `PATH`.
+
+The qualified reference host is pinned at SDK release 0.23.0, revision
+`8a44654aece1609f0f7218be51c205103945abd8`. Its frozen dependency graph uses
+crypto **2.0.0**, unlike crypto **2.2.0** in the earlier published-package smoke
+study above. These are distinct checks, not interchangeable dependency sets.
+
+The SDK excludes authentication/session management, and the reference host's
+account module remains private and incubating. The helper reuses that host with
+isolated application directories and keyring namespace; this is not a stable
+public authentication API. Upstream API and cryptographic changes remain
+maintenance risks. Other distributions, architectures, and unattended keyring
+access are not yet qualified.
 
 ## How the decision can change
 

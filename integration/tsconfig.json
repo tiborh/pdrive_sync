@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "types": ["bun", "@protontech/global-types"],
+    "paths": {
+      "@protontech/drive-sdk": [
+        "../.local/proton-sdk/cli/node_modules/@protontech/drive-sdk/src/index.ts"
+      ],
+      "@protontech/drive-sdk/*": [
+        "../.local/proton-sdk/cli/node_modules/@protontech/drive-sdk/src/*"
+      ],
+      "@protontech/crypto": [
+        "../.local/proton-sdk/cli/node_modules/@protontech/crypto/src/index.ts"
+      ],
+      "@protontech/crypto/*": [
+        "../.local/proton-sdk/cli/node_modules/@protontech/crypto/src/*"
+      ],
+      "proton-drive-sdk-account": [
+        "../.local/proton-sdk/cli/node_modules/proton-drive-sdk-account/src/index.ts"
+      ]
+    }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts"]
+}

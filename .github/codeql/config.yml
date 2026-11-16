@@ -1,0 +1,9 @@
+name: pdrive_sync TypeScript
+paths:
+  - integration/src
+  - integration/scripts
+  - integration/test
+paths-ignore:
+  - .local
+  - "**/node_modules"
+  - integration/dist
