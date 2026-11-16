@@ -21,11 +21,15 @@ TypeScript/Bun baseline, validation evidence, and reasons to revisit the choice.
   [qualification and limitations](docs/proton-integration.md): exported event
   interfaces are used, but the pinned account host remains incubating and this
   is not Proton-endorsed production integration.
-- [ ] **Deliver read-only reconciliation and dry-run output.**
+- [x] **Deliver read-only reconciliation and dry-run output.**
   Add a CLI, explicit local/remote root configuration, a tested metadata adapter,
   persistent synchronization state, and an explainable plan of proposed changes.
   Keep this milestone non-destructive. Extend the existing formatting, linting,
   type checking, and offline CI tests to cover reconciliation.
+  Completed with an explicit-root `plan` command, verified content comparison,
+  persistent matching baselines and event-updated recursive metadata, explanatory
+  text/JSON output, and offline/live checks. See the
+  [dry-run guide and limitations](docs/reconciliation.md).
 - [ ] **Implement explicit, one-shot file synchronization.**
   Transfer only changed content, preserve conflicting versions, stage downloads
   before replacing files, and report individual failures accurately. Reject or

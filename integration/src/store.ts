@@ -1,7 +1,6 @@
-import { Database } from "bun:sqlite";
-import { mkdirSync, lstatSync } from "node:fs";
-import { dirname } from "node:path";
+import type { Database } from "bun:sqlite";
 import { DriveEventType, type DriveEvent } from "@protontech/drive-sdk";
+import { openStateDatabase } from "./database.ts";
 
 export class IntegrationBlockedError extends Error {}
 
@@ -13,33 +12,14 @@ export class EventStore {
     readonly scope: string,
     readonly root: string,
   ) {
-    mkdirSync(dirname(filename), { recursive: true, mode: 0o700 });
-    if (lstatSync(dirname(filename)).isSymbolicLink()) {
-      throw new Error("Event-state directory must not be a symlink.");
-    }
+    this.db = openStateDatabase(filename);
     try {
-      if (lstatSync(filename).isSymbolicLink()) {
-        throw new Error("Event-state file must not be a symlink.");
-      }
-    } catch (error) {
-      if (
-        !(error instanceof Error) ||
-        !("code" in error) ||
-        error.code !== "ENOENT"
-      ) {
-        throw error;
-      }
-    }
-    this.db = new Database(filename);
-    try {
-      this.db.run("PRAGMA busy_timeout = 1000");
-      this.db.run("PRAGMA synchronous = FULL");
-      this.db.run("PRAGMA locking_mode = EXCLUSIVE");
-      this.db.run("BEGIN EXCLUSIVE");
-      this.db.run("COMMIT");
       this.db.run(
         "CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
       );
+      if (this.get("kind") && this.get("kind") !== "events-v1") {
+        throw new Error("This is not an event-journal state file.");
+      }
       this.db.run(
         "CREATE TABLE IF NOT EXISTS known_nodes (uid TEXT PRIMARY KEY)",
       );
@@ -60,6 +40,7 @@ export class EventStore {
           this.set("root", root);
         })();
       }
+      this.set("kind", "events-v1");
     } catch (error) {
       this.db.close();
       throw error;

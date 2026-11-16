@@ -2,7 +2,8 @@
 
 **Milestone complete for an experimental personal-use integration, not a working
 sync client or Proton-endorsed production application.** TypeScript/Bun is the
-initial implementation baseline. Read-only reconciliation is next.
+initial implementation baseline. The subsequent
+[read-only reconciliation milestone](reconciliation.md) is also complete.
 
 ## Selected approach
 
@@ -101,18 +102,23 @@ Authenticate separately, then select an explicit disposable My files subfolder:
   --state ../.local/manual/events.sqlite --watch --seconds 120
 ```
 
-Create that disposable folder yourself before using these commands. The helper
-does not upload, download, rename, or trash files. Watch duration is bounded to
-1–3600 seconds; it is not a daemon. Output is diagnostic JSON, not a stable
+Create that disposable folder yourself before using these commands. These
+diagnostic commands do not upload, download, rename, or trash files. The newer
+`plan` command can read remote revisions into a hash sink to verify content, but
+never saves plaintext files or applies changes. Watch duration is bounded to
+1–3600 seconds; it is not a daemon. Event output is diagnostic JSON, not a stable
 synchronization-operation protocol.
 
 ## Event and crash behavior
 
-The helper monitors the selected root and known **direct children only**.
+The diagnostic `events` command monitors the root and known **direct children only**.
 It obtains an event baseline before one initial direct-child snapshot and then
 catches up. It does not recursively monitor descendants or periodically rescan
 the tree. Known-child moves out of the selected folder and trash/deletion remove
 membership so later outside-folder changes are ignored.
+
+The newer [planner](reconciliation.md) has its own recursive metadata cache and
+state schema; it does not use this direct-child journal as a recursive adapter.
 
 SQLite stores journal identities and the cursor with full synchronous durability
 and an exclusive connection lock. State is bound to the selected root and event
@@ -128,9 +134,11 @@ milestones. Do not delete state and infer that missing files should be removed.
 
 ## Qualification evidence
 
-Eight offline tests passed, including interrupted batches with shared cursors,
-restart/replay, refresh/removal blocking, scope binding, exclusive state access,
-membership filtering, and isolated identity/environment configuration.
+The integration milestone's eight offline tests passed, including interrupted
+batches with shared cursors, restart/replay, refresh/removal blocking, scope
+binding, exclusive state access, membership filtering, and isolated
+identity/environment configuration.
+The expanded reconciliation suite also runs in credential-free CI.
 
 Seven opt-in live checks passed using only randomly named synthetic fixtures:
 
@@ -154,8 +162,10 @@ To repeat the live suite, first authenticate both the helper and the official
 PDRIVE_ALLOW_LIVE_TESTS=1 bun scripts/validate-live.ts
 ```
 
-This command **writes synthetic cloud data**, observes it with the helper, and
-moves its randomly named folder to trash. It does not empty trash. Cleanup
+This command **writes synthetic cloud data**, observes it with the helper, runs
+the planner checks, and moves its randomly named folder to trash.
+Use `--planning-only` to run just authentication and the planner checks.
+It does not empty trash. Cleanup
 failure is reported as failure, with a private report under `.local/validation/`.
 It is a targeted integration test, not a large-tree, multi-writer, transfer-safety,
 or unattended-service qualification.

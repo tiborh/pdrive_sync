@@ -51,6 +51,7 @@ jobs:
       - name: Smoke-test package without authentication
         run: |
           ./dist/pdrive-integration version
+          ./dist/pdrive-integration --help
           cmp ../LICENSE dist/LICENSE
           test -s dist/PROTON-LICENSE
           test -s dist/THIRD-PARTY-NOTICES

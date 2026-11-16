@@ -12,6 +12,7 @@ import {
 } from "./identity.ts";
 import { readBatch } from "./events.ts";
 import { EventStore } from "./store.ts";
+import { reconcile, validatePlanPaths } from "./reconcile.ts";
 
 const options = {
   appVersion: APP_VERSION,
@@ -26,19 +27,38 @@ function output(value: unknown): void {
   console.log(JSON.stringify(value));
 }
 
+const usage = `Usage: pdrive-integration COMMAND
+  auth login|logout|status
+  inspect --remote /my-files/FOLDER
+  events --remote /my-files/FOLDER --state FILE [--once|--watch --seconds N]
+  plan --local DIRECTORY --remote /my-files/FOLDER --state FILE [--format text|json]
+  version
+
+plan is read-only: it never applies transfers or deletions. Its state file must
+be outside the local root and separate from event-journal state. Unverified
+remote revisions are streamed and hashed once, which may use substantial bandwidth.
+Exit codes: 0 = completed; 2 = plan needs review; 1 = incomplete/failed operation.`;
+
 async function main(): Promise<void> {
   process.umask(0o077);
   const { positionals, values } = parseArgs({
     allowPositionals: true,
     options: {
       remote: { type: "string" },
+      local: { type: "string" },
       state: { type: "string" },
+      format: { type: "string", default: "text" },
       once: { type: "boolean" },
       watch: { type: "boolean" },
       seconds: { type: "string", default: "120" },
+      help: { type: "boolean", short: "h" },
     },
   });
   const [command, action] = positionals;
+  if (values.help || (command === "help" && positionals.length === 1)) {
+    console.log(usage);
+    return;
+  }
   if (command === "version" && positionals.length === 1) {
     output({
       appVersion: APP_VERSION,
@@ -48,14 +68,12 @@ async function main(): Promise<void> {
     return;
   }
   if (
-    (command !== "auth" && command !== "inspect" && command !== "events") ||
+    !["auth", "inspect", "events", "plan"].includes(command ?? "") ||
     (command === "auth" &&
       !["login", "logout", "status"].includes(action ?? "")) ||
     positionals.length !== (command === "auth" ? 2 : 1)
   ) {
-    throw new Error(
-      "Usage: pdrive-integration auth login|logout|status; inspect --remote PATH; events --remote PATH --state FILE [--once|--watch --seconds N]",
-    );
+    throw new Error(usage);
   }
   if (values.once && values.watch) {
     throw new Error("--once and --watch are mutually exclusive.");
@@ -64,10 +82,24 @@ async function main(): Promise<void> {
     command !== "auth" &&
     (!values.remote?.startsWith("/my-files/") ||
       values.remote === "/my-files/" ||
-      (command === "events" && !values.state))
+      (["events", "plan"].includes(command ?? "") && !values.state))
   ) {
     throw new Error(
       "An explicit My files subfolder and event-state file are required.",
+    );
+  }
+  if (
+    command === "plan" &&
+    (!values.local || !["text", "json"].includes(values.format ?? ""))
+  ) {
+    throw new Error("plan requires --local DIRECTORY and --format text|json.");
+  }
+  if (
+    command === "plan" &&
+    (values.once || values.watch || values.seconds !== "120")
+  ) {
+    throw new Error(
+      "plan is a single read-only operation; watch options are not supported.",
     );
   }
   const seconds = Number(values.seconds);
@@ -83,6 +115,17 @@ async function main(): Promise<void> {
     throw new Error(
       "The reference host is not isolated or honestly identified.",
     );
+  }
+  if (command === "plan") {
+    if (!values.local || !values.state || !values.remote) {
+      throw new Error("plan requires --local, --remote, and --state.");
+    }
+    await validatePlanPaths({
+      local: values.local,
+      remote: values.remote,
+      state: values.state,
+      privateDirectories: [config.appDir, config.cacheDir, config.logDir],
+    });
   }
   for (const directory of [config.appDir, config.cacheDir, config.logDir]) {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -149,6 +192,45 @@ async function main(): Promise<void> {
     }
     if (!values.state) {
       throw new Error("--state is required.");
+    }
+    if (command === "plan") {
+      if (!values.local) throw new Error("--local is required.");
+      const plan = await reconcile(host.sdk, node, {
+        local: values.local,
+        remote: values.remote,
+        state: values.state,
+        privateDirectories: [config.appDir, config.cacheDir, config.logDir],
+      });
+      if (values.format === "json") {
+        output(plan);
+      } else {
+        console.log(
+          "READ-ONLY DRY RUN: no local or remote content is changed.",
+        );
+        console.log(
+          `Local: ${JSON.stringify(plan.roots.local)}\nRemote: ${JSON.stringify(plan.roots.remote)}`,
+        );
+        console.log(
+          `Remote metadata: ${plan.remoteUpdate.mode}; ${plan.remoteUpdate.events} events`,
+        );
+        console.log(
+          `Remote content verification: ${plan.remoteUpdate.verifiedFiles} revisions, ${plan.remoteUpdate.verifiedBytes} bytes read`,
+        );
+        for (const item of plan.items) {
+          console.log(
+            `${item.action.toUpperCase()} ${JSON.stringify(item.path)}: ${item.reason}`,
+          );
+        }
+        console.log(`Summary: ${JSON.stringify(plan.summary)}`);
+      }
+      if (
+        plan.items.some((item) =>
+          ["conflict", "review", "unsupported"].includes(item.action),
+        )
+      ) {
+        process.exitCode = 2;
+      }
+      return;
     }
     const store = new EventStore(
       resolve(values.state),

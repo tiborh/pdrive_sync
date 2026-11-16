@@ -11,7 +11,7 @@ supported by Proton AG.
 
 ## Status
 
-**Event integration qualified; there is no working sync application yet.**
+**Read-only dry runs are available; no files are synchronized yet.**
 Do not rely on this project as your only backup.
 
 The initial goal is a CLI that synchronizes a local directory, such as
@@ -23,8 +23,12 @@ Do not run two independent sync clients against the same local directory during
 migration: changes and deletions can feed back between them.
 
 See the [roadmap](ROADMAP.md) for milestones and acceptance criteria. Initial
-capability validation, repository setup, and the event-integration milestone are
-complete. Read-only reconciliation is next.
+capability validation, event integration, and read-only reconciliation are complete.
+Explicit one-shot synchronization is next.
+
+The [dry-run guide](docs/reconciliation.md) describes the `plan` command, persistent
+state, conflicts, and exit codes. **Initial verification may read every unverified
+remote file in full**, without saving its contents locally. Nothing is applied.
 
 ## Capability validation
 
@@ -63,8 +67,8 @@ These results demonstrate transfer primitives, not a complete or safe sync engin
 
 ## Design direction
 
-The first implementation milestone is **read-only reconciliation and dry-run
-output**, with no changes to real local or remote files.
+The current implementation provides **read-only reconciliation and dry-run
+output**, with no changes to selected local or remote file contents.
 
 The intended safety model includes persistent synchronization state, preservation
 of conflicting versions, staged downloads, recoverable deletions, explicit
@@ -74,8 +78,10 @@ The experimental [integration helper](docs/proton-integration.md) uses exported
 SDK event APIs through a pinned, incubating reference CLI host. It has its own
 browser-authorized session in the OS keyring, without sharing the official CLI's
 credentials. Live change detection and crash/restart replay passed isolated
-checks. It monitors one selected folder and its direct children, not a recursive
-sync tree. Frequent whole-tree polling is not the proposed solution.
+checks. The diagnostic `events` command monitors direct children only; the `plan`
+command maintains a recursive metadata cache with event updates and verifies
+untrusted remote checksums by reading exact revisions. It never repeatedly scans
+the whole remote tree.
 
 ## Language and runtime
 
@@ -116,9 +122,9 @@ References:
 
 ## Contributing
 
-The project is not ready for general use. Initial contributions should focus on
-read-only reconciliation, reproducible tests using synthetic data,
-and a non-destructive reconciliation design.
+The project is not ready for general use. Contributions should focus on safe
+explicit transfers, reproducible tests using synthetic data, and preserving
+conflicting versions. Dry-run proposals are not authorization to overwrite files.
 
 Never commit credentials, session tokens, keyring exports, personal file listings,
 raw account logs, or synchronization databases. Integration tests must use an
@@ -127,7 +133,7 @@ explicitly selected disposable directory, not a contributor's real sync folder.
 ### Development checks
 
 The root Node.js tooling checks documentation. The `integration/` project contains
-the experimental TypeScript/Bun helper, not a user-ready synchronization engine.
+the experimental TypeScript/Bun planner and helper, not a synchronization engine.
 
 With Node.js 22 or newer and npm installed:
 
