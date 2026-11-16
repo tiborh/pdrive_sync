@@ -8,7 +8,6 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
-    "baseUrl": ".",
     "types": ["bun", "@protontech/global-types"],
     "paths": {
       "@protontech/drive-sdk": [
